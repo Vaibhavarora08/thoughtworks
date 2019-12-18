@@ -1,0 +1,73 @@
+#!/usr/bin/env groovy
+
+pipeline{
+	agent ('label')
+	parameters {
+		string (name :'TERRAFORM_ENVIRONMENT', defaultValue: 'nonprod', description :'The environment to deploy infra")
+}
+	stages{
+		stage('Initialization'){
+			steps{
+			  sh 'printenv'
+			 if [ ${env.TERRAFORM_ENVIRONMENT} = 'nonprod']
+			 then
+			   cp terraform.tf.nonprod terraform.tf
+			 else 
+			  cp terraform.tf.prod terraform.tf
+			fi
+			"""
+			sh 'terraform init'
+			sh terraform workspace list'
+}
+}
+		stage("Interactive input"){
+			steps{
+			// Get the input
+			def userInput = input(
+				id:'userInput', message :'Enter the action and the environment to apply to ',
+				parameters :[
+					choice (name :'Action',
+						choices :'apply\ndestroy'
+						description:'Create or destroy infra'),
+					string(defaultValue: 'dev'
+						descritpion:'Environment')'])
+			env.TMP_WORKSPACE = env.TF_WORKSPACE
+			switch ( env.TF_WORKSPACE){
+			  case 'prod':
+				env.TF_VARFILE = 'prod.tfvars'
+			  case 'dev':
+				env.TF_VARFILE = 'nonprod.tfvars'
+                          }
+      }
+}
+}
+}
+		stage ('Plan'){
+		 steps {
+			sh """
+			  if [ ${env.TF_ACTION} = 'apply']
+			  then 
+			    terraform plan -out remotestate.plan --var-file=${env.TF_VARFILE}
+			  else
+			    terraform plan -destroy -out remotestate.plan --var-file=${env.TF_VARFILE}
+			  fi
+			"""
+}
+}
+		stage ('Apply"){
+		  steps{
+			sh 'export TF_WARN_OUTPUT_ERRORS=1; terraform apply remote-state.plan
+			script{
+				env.TF_WORKSPACE ='default'
+			}
+			sh """
+			  if [${env.TF_ACTION} = 'destroy']
+			  then
+			     terraform workspace delete ${env.TMP_WORKSPACE}
+			  fi
+			  """
+}
+}
+}
+}
+
